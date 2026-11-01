@@ -1,6 +1,7 @@
 import AppKit
 import IOKit.ps
 import LidAwakeCore
+import Network
 import ServiceManagement
 import SwiftUI
 import UserNotifications
@@ -16,6 +17,14 @@ final class AppModel: ObservableObject {
     @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
     /// Battery floor applied to sessions started from the app or widget. 0 = off.
     @AppStorage("batteryFloor") var batteryFloor = 20
+    /// Auto on/off rules (shared with the CLI and MCP through rules.json).
+    @Published private(set) var rules = AutoRules.load()
+    @Published private(set) var activity = ActivitySnapshot()
+    @Published private(set) var networkDownSince: Date?
+    @Published private(set) var hooksInstalled = ClaudeHooks.isInstalled()
+
+    private let pathMonitor = NWPathMonitor()
+    private var lastTick = Date.distantPast
 
     private var timer: Timer?
     private var observations: [Signal.Observation] = []
@@ -35,7 +44,10 @@ final class AppModel: ObservableObject {
         observations = [
             Signal.observe(.changed) { MainActor.assumeIsolated { AppModel.shared.refresh() } },
             Signal.observe(.request) { MainActor.assumeIsolated { AppModel.shared.applyWidgetRequest() } },
+            // Hooks and keepalives: re-evaluate straight away (at most every 2 s).
+            Signal.observe(.activity) { MainActor.assumeIsolated { AppModel.shared.tick(minimumGap: 2) } },
         ]
+        observeNetwork()
         observePowerSource()
         applyWidgetRequest()
         if Bundle.main.bundleIdentifier != nil {
@@ -43,15 +55,75 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func tick() {
-        if let reason = Controller.enforce() { notify("Sleep is back on", reason.description) }
+    func tick(minimumGap: TimeInterval = 0) {
+        guard Date().timeIntervalSince(lastTick) >= minimumGap else { return }
+        lastTick = Date()
+        rules = AutoRules.load()
+        switch Controller.enforce(rules: rules, networkDownSince: networkDownSince,
+                                  agentBatteryFloor: batteryFloor > 0 ? batteryFloor : nil) {
+        case .turnOff(let reason): notify("Sleep is back on", reason.description)
+        case .turnOn(let reason): notify("Keeping the Mac awake", reason.description)
+        default: break
+        }
         refresh()
     }
 
     func refresh() {
         now = Date()
         status = Controller.status()
+        activity = Controller.snapshot(networkDownSince: networkDownSince)
+        hooksInstalled = ClaudeHooks.isInstalled()
         publishWidgetSnapshot()
+    }
+
+    // MARK: Agent mode and auto rules
+
+    var agentBusy: Bool { activity.agentBusy(at: now, window: rules.busyWindow) }
+
+    /// "2 sessions working", "Working (transcript)", "Quiet for 12m" or "No agent activity yet".
+    var agentStatusLine: String {
+        let working = activity.workingSessions(at: now, window: rules.busyWindow)
+        let leases = activity.store.activeLeases(at: now)
+        if let lease = leases.first { return "Held by \(lease.reason) · \(Duration.format(lease.until.timeIntervalSince(now))) left" }
+        if working > 0 { return working == 1 ? "1 session working" : "\(working) sessions working" }
+        if agentBusy { return "Working" }
+        if let last = activity.lastAgentActivity(at: now) { return "Quiet for \(Duration.format(now.timeIntervalSince(last)))" }
+        return "No agent activity yet"
+    }
+
+    func updateRules(_ change: (inout AutoRules) -> Void) {
+        var next = rules
+        change(&next)
+        do {
+            try next.save()
+            rules = next
+        } catch {
+            errorMessage = "Could not save rules: \(error.localizedDescription)"
+        }
+        tick()
+    }
+
+    func installHooks() {
+        do {
+            try ClaudeHooks.install(command: ClaudeHooks.defaultCommand())
+            errorMessage = nil
+        } catch {
+            errorMessage = "Hooks: \(error)"
+        }
+        refresh()
+    }
+
+    private func observeNetwork() {
+        pathMonitor.pathUpdateHandler = { path in
+            let up = path.status == .satisfied
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let model = AppModel.shared
+                    if up { model.networkDownSince = nil } else if model.networkDownSince == nil { model.networkDownSince = Date() }
+                }
+            }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "dev.habibtalib.lidawake.network"))
     }
 
     var remaining: TimeInterval? { status.remaining(now: now) }

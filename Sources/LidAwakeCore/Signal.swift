@@ -6,6 +6,8 @@ public enum Signal: String, CaseIterable, Sendable {
     case changed = "dev.habibtalib.lidawake.changed"
     /// The widget wrote a request to the App Group container. The app applies it.
     case request = "dev.habibtalib.lidawake.request"
+    /// An agent pinged (hook, keepalive or release). The app re-evaluates the rules right away.
+    case activity = "dev.habibtalib.lidawake.activity"
 
     public static func post(_ signal: Signal) {
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),

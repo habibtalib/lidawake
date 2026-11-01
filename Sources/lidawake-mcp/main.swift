@@ -32,6 +32,22 @@ let tools: [[String: Any]] = [
         "inputSchema": schema([
             "minutes": ["type": "integer", "description": "Turn sleep back on after this many minutes. Omit to stay on until turned off."],
             "battery_floor": ["type": "integer", "description": "Turn sleep back on when on battery at or below this percentage (1–99)."],
+            "agent_mode": ["type": "boolean", "description": "Also switch on agent mode: LidAwake then turns on while Claude Code works and off once it is quiet."],
+        ]),
+    ],
+    [
+        "name": "lidawake_keepalive",
+        "description": "Hold the Mac awake while you work (long builds, test runs, deploys, agent tasks), even with the lid closed. Turns LidAwake on if needed. Call again before it expires to extend; call lidawake_release when done so the Mac can sleep.",
+        "inputSchema": schema([
+            "minutes": ["type": "integer", "description": "How long to hold (default 30). Extend by calling again."],
+            "reason": ["type": "string", "description": "Short label shown to the user, e.g. 'npm test in repo X'."],
+        ]),
+    ],
+    [
+        "name": "lidawake_release",
+        "description": "End your keepalive. The Mac then follows the user's rules again (agent mode, idle, network) and may go back to sleep.",
+        "inputSchema": schema([
+            "reason": ["type": "string", "description": "The same label used for lidawake_keepalive. Omit to release all keepalives."],
         ]),
     ],
     [
@@ -60,16 +76,38 @@ func appIsRunning() -> Bool {
 func callTool(_ name: String, _ args: [String: Any]) throws -> String {
     switch name {
     case "lidawake_status":
+        let rules = AutoRules.load()
+        let activity = Controller.snapshot()
+        let now = Date()
+        let leases = activity.store.activeLeases(at: now).map { "\($0.reason) (\(Duration.format($0.until.timeIntervalSince(now))) left)" }
         return Controller.status().summary()
+            + "\nRules: \(rules.summary)."
+            + "\nAgents: \(activity.agentBusy(at: now, window: rules.busyWindow) ? "working" : "quiet")"
+            + (leases.isEmpty ? "" : "; keepalives: " + leases.joined(separator: ", ")) + "."
     case "lidawake_on":
         let minutes = int(args["minutes"])
         let floor = int(args["battery_floor"])
         if let floor, !(1...99).contains(floor) { throw ToolError(message: "'battery_floor' must be 1–99.") }
+        if (args["agent_mode"] as? Bool) == true {
+            var rules = AutoRules.load()
+            rules.agentMode = true
+            try rules.save()
+        }
         var text = try Controller.turnOn(minutes: minutes, batteryFloor: floor, origin: .mcp).summary()
         if (minutes != nil || floor != nil) && !appIsRunning() {
             text += "\nWarning: the LidAwake app is not running, so the timer and battery floor are not enforced. Call lidawake_off when done."
         }
         return text
+    case "lidawake_keepalive":
+        let minutes = max(1, min(int(args["minutes"]) ?? 30, 24 * 60))
+        let reason = (args["reason"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "agent"
+        var text = try Controller.keepalive(minutes: minutes, reason: reason, source: .mcp).summary()
+        text += "\nKeepalive '\(reason)' holds for \(minutes) min."
+        if !appIsRunning() { text += "\nWarning: the LidAwake app is not running, so nothing will release this automatically. Call lidawake_release when done." }
+        return text
+    case "lidawake_release":
+        let reason = (args["reason"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return try Controller.release(reason: reason).summary() + "\nReleased \(reason.map { "'\($0)'" } ?? "all keepalives")."
     case "lidawake_off":
         return try Controller.turnOff().summary()
     default:

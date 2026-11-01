@@ -32,6 +32,7 @@ struct PanelView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else {
                 hero
+                AgentModeCard()
                 timerCard
                 BatteryGuardCard(floor: $model.batteryFloor, battery: model.status.battery,
                                  activeFloor: on ? model.status.session?.batteryFloor : nil)
@@ -110,6 +111,9 @@ struct PanelView: View {
                                 .monospacedDigit()
                         }
                         .foregroundStyle(Theme.accent)
+                    } else if on, model.status.session?.origin == .agent {
+                        Label("For Claude Code", systemImage: "sparkles")
+                            .foregroundStyle(Theme.accent)
                     } else if on {
                         Label("Until you turn it off", systemImage: "infinity")
                             .foregroundStyle(.secondary)
@@ -219,7 +223,143 @@ struct PanelView: View {
     }
 }
 
+// MARK: - Agent mode and auto-off
+
+struct AgentModeCard: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var expanded = false
+
+    private static let durations = [0, 5, 10, 15, 30, 60, 120]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(model.agentBusy ? AnyShapeStyle(Theme.awake) : AnyShapeStyle(Color.primary.opacity(0.08)))
+                        .frame(width: 30, height: 30)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(model.agentBusy ? .white : .secondary)
+                        .symbolEffect(.pulse, isActive: model.agentBusy)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Agent mode").font(.system(size: 12.5, weight: .semibold))
+                    Text(model.agentStatusLine)
+                        .font(.system(size: 11))
+                        .foregroundStyle(model.agentBusy ? Theme.accent : .secondary)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                }
+                Spacer()
+                PillSwitch(isOn: model.rules.agentMode) { value in model.updateRules { $0.agentMode = value } }
+            }
+
+            Button {
+                withAnimation(Theme.spring) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "moon.zzz")
+                    Text(autoOffSummary).lineLimit(1)
+                        .help("Sleep comes back on after this much agent quiet, keyboard and mouse idle, or network downtime")
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                VStack(spacing: 8) {
+                    if model.rules.agentMode {
+                        ruleRow("Agent sessions end after quiet", "sparkles", \.agentQuietMinutes, allowOff: false)
+                    }
+                    ruleRow("Claude Code quiet", "bubble.left.and.text.bubble.right", \.offWhenAgentsQuietMinutes)
+                    ruleRow("No keyboard or mouse", "keyboard", \.offWhenIdleMinutes)
+                    ruleRow(model.networkDownSince == nil ? "Network down" : "Network down (now)", "wifi.slash", \.offWhenNetworkDownMinutes)
+                    if !model.hooksInstalled {
+                        Button {
+                            model.installHooks()
+                        } label: {
+                            Label("Install Claude Code hooks for instant detection", systemImage: "link.badge.plus")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.accent)
+                    }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(model.rules.agentMode ? AnyShapeStyle(Theme.awake.opacity(0.45)) : AnyShapeStyle(Color.clear), lineWidth: 1)
+        )
+        .animation(Theme.spring, value: model.agentBusy)
+        .animation(Theme.spring, value: model.rules.agentMode)
+    }
+
+    private var autoOffSummary: String {
+        let r = model.rules
+        let parts = [r.offWhenAgentsQuietMinutes > 0 ? "\(r.offWhenAgentsQuietMinutes)m quiet" : nil,
+                     r.offWhenIdleMinutes > 0 ? "\(r.offWhenIdleMinutes)m idle" : nil,
+                     r.offWhenNetworkDownMinutes > 0 ? "\(r.offWhenNetworkDownMinutes)m offline" : nil].compactMap { $0 }
+        return parts.isEmpty ? "only when you say" : parts.joined(separator: " · ")
+    }
+
+    private func ruleRow(_ title: String, _ symbol: String, _ key: WritableKeyPath<AutoRules, Int>, allowOff: Bool = true) -> some View {
+        HStack {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11.5))
+            Spacer()
+            Menu {
+                ForEach(Self.durations.filter { allowOff || $0 > 0 }, id: \.self) { minutes in
+                    Button(minutes == 0 ? "Off" : Duration.format(Double(minutes) * 60)) {
+                        model.updateRules { $0[keyPath: key] = minutes }
+                    }
+                }
+            } label: {
+                Text(model.rules[keyPath: key] == 0 ? "Off" : Duration.format(Double(model.rules[keyPath: key]) * 60))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(model.rules[keyPath: key] == 0 ? .secondary : Theme.accent)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+    }
+}
+
 // MARK: - Components
+
+/// A SwiftUI-only switch (renders in snapshots, animates with the app's spring).
+struct PillSwitch: View {
+    let isOn: Bool
+    let set: (Bool) -> Void
+
+    var body: some View {
+        Button { set(!isOn) } label: {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(isOn ? AnyShapeStyle(Theme.awake) : AnyShapeStyle(Color.primary.opacity(0.15)))
+                    .frame(width: 38, height: 22)
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
+                    .frame(width: 18, height: 18)
+                    .padding(2)
+            }
+        }
+        .buttonStyle(.plain)
+        .animation(Theme.spring, value: isOn)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(isOn ? "On" : "Off")
+    }
+}
 
 /// Big round toggle. Shows a countdown ring while a timer runs and breathes while awake.
 struct PowerButton: View {
@@ -491,6 +631,19 @@ struct SettingsView: View {
                     }
                 } else {
                     Button("Install") { model.installPermission() }
+                }
+            }
+            LabeledContent("Claude Code hooks") {
+                if model.hooksInstalled {
+                    HStack {
+                        Text("Installed").foregroundStyle(.secondary)
+                        Button("Remove") {
+                            try? ClaudeHooks.uninstall()
+                            model.refresh()
+                        }
+                    }
+                } else {
+                    Button("Install") { model.installHooks() }
                 }
             }
             LabeledContent("Rule file", value: SudoersRule.path)

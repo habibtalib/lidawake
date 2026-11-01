@@ -62,12 +62,58 @@ public enum Controller {
         return status()
     }
 
-    /// Applies the guard once. Returns the reason when it switched sleep back on.
+    /// Gathers the activity the rules look at. `networkDownSince` comes from the caller's path monitor.
+    public static func snapshot(networkDownSince: Date? = nil) -> ActivitySnapshot {
+        ActivitySnapshot(lastTranscriptWrite: TranscriptScanner.lastWrite(),
+                         store: ActivityStore.load(),
+                         userIdleSeconds: UserIdle.seconds(),
+                         networkDownSince: networkDownSince)
+    }
+
+    /// Applies the timer, battery floor and auto rules once, switching sleep on or off as needed.
+    /// Returns the decision it acted on, or nil when nothing changed.
     @discardableResult
-    public static func enforce(now: Date = Date()) -> Guard.Reason? {
-        guard let session = SessionStore.load(), PowerState.isSleepDisabled() else { return nil }
-        guard case .turnOff(let reason) = Guard.evaluate(session, battery: Battery.current(), now: now) else { return nil }
-        guard (try? turnOff()) != nil else { return nil }
-        return reason
+    public static func enforce(rules: AutoRules = AutoRules.load(), networkDownSince: Date? = nil,
+                               agentBatteryFloor: Int? = nil, now: Date = Date()) -> Guard.Decision? {
+        let disabled = PowerState.isSleepDisabled()
+        // Sleep can be disabled outside LidAwake (plain pmset); treat that as a manual session from now.
+        var session = disabled ? SessionStore.load() : nil
+        if disabled && session == nil {
+            session = Session(startedAt: now, origin: .cli)
+            try? SessionStore.save(session)
+        }
+        let decision = Guard.evaluate(session: session, battery: Battery.current(), activity: snapshot(networkDownSince: networkDownSince),
+                                      rules: rules, batteryFloor: agentBatteryFloor, now: now)
+        switch decision {
+        case .keep:
+            return nil
+        case .turnOff:
+            return (try? turnOff()) != nil ? decision : nil
+        case .turnOn:
+            return (try? turnOn(batteryFloor: agentBatteryFloor, origin: .agent)) != nil ? decision : nil
+        }
+    }
+
+    // MARK: Agent keepalive
+
+    /// Holds the Mac awake for `minutes` on behalf of an agent, turning sleep off if needed.
+    public static func keepalive(minutes: Int, reason: String, source: ActivityStore.Source) throws -> Status {
+        try ActivityStore.update { $0.hold(reason: reason, minutes: minutes, source: source) }
+        Signal.post(.activity)
+        if !PowerState.isSleepDisabled() { return try turnOn(origin: source == .mcp ? .mcp : .cli) }
+        return status()
+    }
+
+    /// Ends a keepalive (or all of them when `reason` is nil). The rules decide from here on.
+    public static func release(reason: String?) throws -> Status {
+        try ActivityStore.update { $0.release(reason: reason) }
+        Signal.post(.activity)
+        return status()
+    }
+
+    /// A Claude Code hook ping.
+    public static func recordHook(session id: String, done: Bool) throws {
+        try ActivityStore.update { $0.ping(session: id, source: .hook, done: done) }
+        Signal.post(.activity)
     }
 }

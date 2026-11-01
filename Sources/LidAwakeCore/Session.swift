@@ -2,7 +2,7 @@ import Foundation
 
 /// Who switched LidAwake on. Shown in the app and in `lidawake status`.
 public enum Origin: String, Codable, Sendable, CaseIterable {
-    case app, cli, widget, mcp
+    case app, cli, widget, mcp, agent
 }
 
 /// The current keep-awake session. Written by whoever turns LidAwake on;

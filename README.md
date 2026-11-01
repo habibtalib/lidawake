@@ -22,6 +22,7 @@
 <p align="center">
   <a href="#-install">Install</a> ·
   <a href="#-features">Features</a> ·
+  <a href="#-agent-mode">Agent mode</a> ·
   <a href="#-desktop-widget">Widget</a> ·
   <a href="#-cli">CLI</a> ·
   <a href="#-mcp-server">MCP</a> ·
@@ -52,6 +53,8 @@ Closing a MacBook's lid puts it to sleep, unless an external display, keyboard a
 - **CLI.** `lidawake on --for 2h`, `lidawake off`, `lidawake status --json`.
 - **MCP server.** Lets Claude Code and other agents keep the Mac awake for long tasks, then switch it back.
 - **No password prompts.** One admin prompt installs a sudoers rule that allows only `pmset -a disablesleep 1` and `0`.
+- **Agent mode.** Turns on by itself while Claude Code is working and lets the Mac sleep once it goes quiet.
+- **Auto-off.** Sleep comes back on after agents are quiet, the Mac is idle, or the network is down for too long.
 - **Safe quit.** Quitting while awake asks whether to turn sleep back on.
 - **Zero dependencies.** Swift, SwiftUI, WidgetKit and IOKit only.
 
@@ -93,6 +96,31 @@ Find your team ID in Xcode > Settings > Accounts. Then right-click the desktop >
 
 The CLI and MCP server switch pmset directly. The timer and battery guard need the menu bar app running, or `lidawake on --for 2h --wait` in a terminal.
 
+## 🤖 Agent mode
+
+Turn on **Agent mode** in the panel (or `lidawake rules --agent-mode on`). LidAwake then keeps the Mac awake while
+an agent is working and lets it sleep again once the agents have been quiet for 10 minutes. No timers to remember.
+
+LidAwake knows an agent is working from three signals:
+
+| Signal | Setup | How |
+|---|---|---|
+| Transcript writes | none | A Claude Code transcript in `~/.claude/projects` (or `$CLAUDE_CONFIG_DIR`, `~/.claude-profiles/*`) was written in the last 3 minutes. Only file times are read, never contents. |
+| Claude Code hooks | `lidawake hooks install` | `UserPromptSubmit`/`PreToolUse` mark a session busy; `Stop`/`SessionEnd` mark it done. Your other hooks are left alone and `settings.json` is backed up first. |
+| Keepalive | none | Any MCP agent calls `lidawake_keepalive {minutes, reason}`, or a script runs `lidawake keepalive 45m --reason "nightly build"`. |
+
+### Auto-off rules
+
+These apply to every session, including ones you started yourself. Change them in the panel or with `lidawake rules`:
+
+| Rule | Default | Flag |
+|---|---|---|
+| Claude Code quiet | 15 min | `--agents-quiet 15m\|off` |
+| No keyboard or mouse (and no agents) | 30 min | `--idle 30m\|off` |
+| Network down | 10 min | `--network 10m\|off` |
+
+A live keepalive always wins over these rules. The timer and battery guard always win over everything.
+
 ## 🧩 Desktop widget
 
 The widget shows the state, a live countdown and the battery level. **Turn On / Turn Off** and the **30m / 1h / 2h** buttons work in place.
@@ -106,6 +134,10 @@ lidawake on [--for <duration>] [--battery-floor <percent>] [--wait]
 lidawake off
 lidawake toggle
 lidawake status [--json]
+lidawake keepalive <duration> [--reason <text>]
+lidawake release [--reason <text>]
+lidawake rules [--agent-mode on|off] [--agents-quiet <dur>|off] [--idle <dur>|off] [--network <dur>|off]
+lidawake hooks install|uninstall|status
 lidawake install-permission
 lidawake uninstall-permission
 lidawake version
@@ -129,10 +161,12 @@ claude mcp add lidawake -s user -- $HOME/.local/bin/lidawake-mcp
 | Tool | Arguments |
 |---|---|
 | `lidawake_status` | none |
-| `lidawake_on` | `minutes?`, `battery_floor?` |
+| `lidawake_on` | `minutes?`, `battery_floor?`, `agent_mode?` |
+| `lidawake_keepalive` | `minutes?` (default 30), `reason?` |
+| `lidawake_release` | `reason?` (omit to release all) |
 | `lidawake_off` | none |
 
-Example: *"Keep the Mac awake for 2 hours while you run the migration, then turn it off."*
+Example: *"Hold the Mac awake while you run the migration, then release it."* The agent calls `lidawake_keepalive`, does the work, then `lidawake_release`.
 
 ## 🔒 Security
 
