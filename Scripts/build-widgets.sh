@@ -23,7 +23,7 @@ if [[ "${1:-}" == "--install" ]]; then
   swift build -c release
   BIN="$(swift build -c release --show-bin-path)"
   mkdir -p "$HOME/Applications" "$HOME/.local/bin"
-  osascript -e 'quit app "LidAwake"' 2>/dev/null || true
+  pkill -x LidAwake 2>/dev/null || true  # skip the quit dialog; the sleep setting is left as it is
   rm -rf "$HOME/Applications/LidAwake.app"
   cp -R "$APP" "$HOME/Applications/"
   install -m 0755 "$BIN/lidawake" "$BIN/lidawake-mcp" "$HOME/.local/bin/"

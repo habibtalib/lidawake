@@ -62,6 +62,20 @@ final class AppModel: ObservableObject {
         perform { try Controller.turnOn(minutes: minutes, batteryFloor: self.batteryFloor > 0 ? self.batteryFloor : nil, origin: origin) }
     }
 
+    /// Adds time to the running timer (or starts one from now when there is none).
+    func extend(minutes: Int) {
+        let left = remaining.map { max(0, Int(($0 / 60).rounded(.up))) } ?? 0
+        turnOn(minutes: left + minutes, origin: status.session?.origin ?? .app)
+    }
+
+    /// 0…1 share of the timer still left, nil without a timer.
+    var timerProgress: Double? {
+        guard let session = status.session, let deadline = session.deadline else { return nil }
+        let total = deadline.timeIntervalSince(session.startedAt)
+        guard total > 0 else { return nil }
+        return min(1, max(0, deadline.timeIntervalSince(now) / total))
+    }
+
     func turnOff() {
         perform { try Controller.turnOff() }
     }

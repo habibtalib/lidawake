@@ -30,6 +30,12 @@
 
 ---
 
+<p align="center">
+  <img src="docs/assets/panel-dark.png" alt="LidAwake menu bar panel, dark" width="320">
+  &nbsp;
+  <img src="docs/assets/panel-light.png" alt="LidAwake menu bar panel, light" width="320">
+</p>
+
 ## 💡 Why
 
 Closing a MacBook's lid puts it to sleep, unless an external display, keyboard and power are all connected. That kills SSH sessions, long builds, downloads, agent runs and music over AirPlay.
@@ -38,7 +44,8 @@ Closing a MacBook's lid puts it to sleep, unless an external display, keyboard a
 
 ## ✨ Features
 
-- **Menu bar switch.** One click on, one click off. The icon shows the state and the time left.
+- **Menu bar switch.** A big power button with a live countdown ring. The menu bar icon shows the state and the time left.
+- **Extend in one click.** +30m and +1h while a timer runs, or drag the custom slider (15 minutes to 12 hours).
 - **Timer.** Keep awake for 30 minutes, 1, 2 or 4 hours, or until you turn it off.
 - **Battery guard.** Sleep comes back on automatically when you are on battery at 10, 20 or 30% or below.
 - **Desktop widget.** Small and medium sizes with interactive buttons (macOS 14+).

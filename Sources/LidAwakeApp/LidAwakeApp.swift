@@ -41,7 +41,10 @@ struct MenuBarLabel: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        MainActor.assumeIsolated { AppModel.shared.start() }
+        MainActor.assumeIsolated {
+            AppModel.shared.start()
+            _ = PanelSnapshot.runIfRequested(model: AppModel.shared)
+        }
     }
 
     /// `lidawake://apply` (widget tap while the app was closed) applies the pending request.

@@ -52,7 +52,7 @@ echo "Built $APP ($VERSION)"
 
 if [[ "${1:-}" == "--install" ]]; then
   mkdir -p "$HOME/Applications" "$HOME/.local/bin"
-  osascript -e 'quit app "LidAwake"' 2>/dev/null || true
+  pkill -x LidAwake 2>/dev/null || true  # skip the quit dialog; the sleep setting is left as it is
   rm -rf "$HOME/Applications/LidAwake.app"
   cp -R "$APP" "$HOME/Applications/"
   install -m 0755 "$OUT/lidawake" "$OUT/lidawake-mcp" "$HOME/.local/bin/"
