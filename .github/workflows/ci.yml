@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Bundle app
+        run: Scripts/bundle-app.sh
+      - name: Xcode build with widget (unsigned)
+        run: |
+          brew install xcodegen
+          LIDAWAKE_TEAM="" xcodegen generate --quiet
+          xcodebuild -project LidAwake.xcodeproj -scheme LidAwake -configuration Release \
+            -derivedDataPath build/xcode CODE_SIGNING_ALLOWED=NO build

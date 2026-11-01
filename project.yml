@@ -1,0 +1,66 @@
+# XcodeGen spec for the signed build with the widget. Generate with Scripts/build-widgets.sh.
+# Requires LIDAWAKE_TEAM=<your Apple Developer team ID> (a free Personal Team works).
+name: LidAwake
+options:
+  bundleIdPrefix: dev.habibtalib
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ${LIDAWAKE_TEAM}
+    CODE_SIGN_STYLE: Automatic
+    APP_GROUP_ID: "$(DEVELOPMENT_TEAM).dev.habibtalib.lidawake"
+packages:
+  LidAwakeKit:
+    path: .
+targets:
+  LidAwake:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/LidAwakeApp
+      - path: Xcode/AppIcon.icns
+        buildPhase: resources
+    dependencies:
+      - package: LidAwakeKit
+        product: LidAwakeCore
+      - target: LidAwakeWidget
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        PRODUCT_NAME: LidAwake
+        PRODUCT_BUNDLE_IDENTIFIER: dev.habibtalib.lidawake
+        INFOPLIST_FILE: Xcode/App-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Xcode/LidAwake.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+  LidAwakeWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+    dependencies:
+      - package: LidAwakeKit
+        product: LidAwakeCore
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: AppIntents.framework
+    settings:
+      base:
+        PRODUCT_NAME: LidAwakeWidget
+        PRODUCT_BUNDLE_IDENTIFIER: dev.habibtalib.lidawake.widget
+        INFOPLIST_FILE: Xcode/Widget-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Xcode/LidAwakeWidget.entitlements
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: YES
+schemes:
+  LidAwake:
+    build:
+      targets:
+        LidAwake: all
+        LidAwakeWidget: all
