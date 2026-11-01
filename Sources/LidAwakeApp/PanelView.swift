@@ -210,10 +210,11 @@ struct PanelView: View {
 
     private var footer: some View {
         HStack(spacing: 4) {
-            SettingsLink {
+            Button { SettingsWindow.open() } label: {
                 Label("Settings", systemImage: "gearshape")
             }
             .buttonStyle(FooterButtonStyle())
+            .keyboardShortcut(",", modifiers: .command)
             Spacer()
             Button { NSApp.terminate(nil) } label: {
                 Label("Quit", systemImage: "power")
